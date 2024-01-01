@@ -20,34 +20,60 @@ function hasConfigOrEntityChanged(element, changedProps) {
   return true;
 }
 
-const torrent_types = ['total','active','completed','paused','started'];
+const torrent_types = ['all','active','inactive','paused','downloading','seeding'];
 
-class TransmissionCard extends LitElement {
+class QBittorrentCard extends LitElement {
 
   static get properties() {
     return {
       config: {},
       hass: {},
-      selectedType: {state: true}
+      selectedType: {state: true},
+      torrents: {state: true},
+      intervalGetTorrents: {},
     };
   }
 
-  _getTorrents(hass, type, sensor_entity_id) {
+  async _getTorrents(hass, type) {
     var res = [];
-    if (typeof this.hass.states[`sensor.${sensor_entity_id}_${type}_torrents`] != "undefined") {
-      const data1 = this.hass.states[`sensor.${sensor_entity_id}_${type}_torrents`].attributes['torrent_info'];
-      Object.keys(data1 || {}).forEach(function (key) {
-        res.push({
-          name: key,
-          id: data1[key].id,
-          percent: parseInt(data1[key].percent_done, 10),
-          state: data1[key].status,
-          added_date: data1[key].added_date,
-          eta: data1[key].eta,
-        });
+    try {
+      const data = await hass.callWS({
+        type: 'call_service',
+        domain: 'qbittorrent',
+        service: 'get_torrents',
+        service_data: { "torrent_filter": type },
+        return_response: true
       });
+      if (typeof data.response != "undefined" &&
+          typeof data.response['torrent_info'] != "undefined") {
+        const data1 = data.response['torrent_info'];
+        Object.keys(data1 || {}).forEach(function (key) {
+          res.push({
+            name: key,
+            id: data1[key].id,
+            percent: parseInt(data1[key].percent_done, 10),
+            state: data1[key].status,
+            added_date: data1[key].added_date,
+            eta: data1[key].eta,
+          });
+        });
+      }
+      this.torrents = res;
+    } catch (error) {
+      console.error(`Error fetching torrents:`, error);
+      throw error; // Rethrow the error so it can be caught by the .catch() block in firstUpdated()
     }
-    return res;
+  }
+
+  _removeLastPercent(str) {
+    // Check if the last character is a "%"
+    if (str.charAt(str.length - 1) === '%') {
+      // Remove the last character
+      return str.slice(0, -1);
+    } else {
+      // Return the original string if the last character is not a "%"
+      return str;
+    }
   }
 
   _getGAttributes() {
@@ -72,7 +98,8 @@ class TransmissionCard extends LitElement {
   }
 
   _formatSpeed(hass, speedSensor) {
-    const precision = this.hass.entities[speedSensor].display_precision;
+    // const precision = this.hass.entities[speedSensor].display_precision;
+    const precision = 1;
     if (Intl) {
       return Intl.NumberFormat(
         hass.locale.language,
@@ -85,64 +112,64 @@ class TransmissionCard extends LitElement {
     return parseFloat(this.hass.states[speedSensor].state).toFixed(precision);
   }
 
-  _toggleTurtle() {
-    this.hass.callService('switch', 'toggle', { entity_id: this.turtle_mode_entity_id });
-  }
+  // _toggleTurtle() {
+  //   this.hass.callService('switch', 'toggle', { entity_id: this.turtle_mode_entity_id });
+  // }
 
   _toggleType(ev) {
     this.selectedType = ev.target.value;
   }
 
-  _startStop() {
-    this.hass.callService('switch', 'toggle', { entity_id: this.switch_entity_id });
-  }
+  // _startStop() {
+  //   this.hass.callService('switch', 'toggle', { entity_id: this.switch_entity_id });
+  // }
 
-  _startTorrent(event) {
-    const torrentId = event.currentTarget.dataset.torrentId;
-    this.hass.callService('transmission', 'start_torrent', { entry_id: `${this.config_entry}`, id: torrentId });
-  }
+  // _startTorrent(event) {
+  //   const torrentId = event.currentTarget.dataset.torrentId;
+  //   this.hass.callService('transmission', 'start_torrent', { entry_id: `${this.config_entry}`, id: torrentId });
+  // }
 
-  _stopTorrent(event) {
-    const torrentId = event.currentTarget.dataset.torrentId;
-    this.hass.callService('transmission', 'stop_torrent', { entry_id: `${this.config_entry}`, id: torrentId });
-  }
+  // _stopTorrent(event) {
+  //   const torrentId = event.currentTarget.dataset.torrentId;
+  //   this.hass.callService('transmission', 'stop_torrent', { entry_id: `${this.config_entry}`, id: torrentId });
+  // }
 
-  _deleteTorrent(event) {
-    const torrentId = event.currentTarget.dataset.torrentId;
-    const deleteData = event.currentTarget.dataset.deleteData;
-    this.hass.callService('transmission', 'remove_torrent', { entry_id: `${this.config_entry}`, id: torrentId, delete_data: deleteData });
-  }
+  // _deleteTorrent(event) {
+  //   const torrentId = event.currentTarget.dataset.torrentId;
+  //   const deleteData = event.currentTarget.dataset.deleteData;
+  //   this.hass.callService('transmission', 'remove_torrent', { entry_id: `${this.config_entry}`, id: torrentId, delete_data: deleteData });
+  // }
 
-  _addTorrent(event) {
-    if (event.key !== 'Enter') return;
-    const torrentMagnet = event.target.value;
-    this.hass.callService('transmission', 'add_torrent', { entry_id: `${this.config_entry}`, torrent: torrentMagnet });
-    event.target.value = '';
-  }
+  // _addTorrent(event) {
+  //   if (event.key !== 'Enter') return;
+  //   const torrentMagnet = event.target.value;
+  //   this.hass.callService('transmission', 'add_torrent', { entry_id: `${this.config_entry}`, torrent: torrentMagnet });
+  //   event.target.value = '';
+  // }
 
   get download_speed_entity_id() {
-    let download_speed = `sensor.${this.config.sensor_entity_id}_download_speed`;
+    let download_speed = `sensor.${this.config.sensor_entity_id}_download`;
     if (typeof this.hass.states[download_speed] != "undefined") {
       return download_speed;
     }
-    return `sensor.${this.config.sensor_entity_id}_down_speed`;
+    return `sensor.${this.config.sensor_entity_id}_download_speed`;
   }
 
   get upload_speed_entity_id() {
-    let upload_speed = `sensor.${this.config.sensor_entity_id}_upload_speed`;
+    let upload_speed = `sensor.${this.config.sensor_entity_id}_upload`;
     if (typeof this.hass.states[upload_speed] != "undefined") {
       return upload_speed;
     }
-    return `sensor.${this.config.sensor_entity_id}_up_speed`;
+    return `sensor.${this.config.sensor_entity_id}_upload_speed`;
   }
 
-  get turtle_mode_entity_id() {
-    return `switch.${this.config.sensor_entity_id}_turtle_mode`;
-  }
+  // get turtle_mode_entity_id() {
+  //   return `switch.${this.config.sensor_entity_id}_turtle_mode`;
+  // }
 
-  get switch_entity_id() {
-    return `switch.${this.config.sensor_entity_id}_switch`;
-  }
+  // get switch_entity_id() {
+  //   return `switch.${this.config.sensor_entity_id}_switch`;
+  // }
 
   get status_entity_id() {
     return `sensor.${this.config.sensor_entity_id}_status`;
@@ -173,9 +200,10 @@ class TransmissionCard extends LitElement {
       'hide_type': false,
       'default_type': 'total',
       'display_mode': 'compact',
-      'sensor_name': 'transmission',
-      'sensor_entity_id': 'transmission',
-      'header_text': 'Transmission',
+      'refresh_rate': 15000,
+      'sensor_name': 'qbittorrent',
+      'sensor_entity_id': 'qbittorrent',
+      'header_text': 'QBittorrent',
       'hide_header': false,
       'hide_add_torrent': false,
       'hide_delete_torrent': false,
@@ -191,24 +219,40 @@ class TransmissionCard extends LitElement {
     this.selectedType = this.config.default_type;
   }
 
+  _setupGetTorrentsInterval() {
+    this._getTorrents(this.hass, this.selectedType);
+    clearInterval(this.intervalGetTorrents);
+    this.intervalGetTorrents = setInterval(() => this._getTorrents(this.hass, this.selectedType), this.config.refresh_rate);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this.intervalGetTorrents);
+  }
+
+  updated(changedProperties) {
+    if (changedProperties.has('selectedType')) {
+      this._setupGetTorrentsInterval();
+    }
+  }
+
   render() {
     if (!this.config || !this.hass) {
       return html``;
     }
 
-    const torrents = this._getTorrents(this.hass, this.selectedType, this.config.sensor_entity_id);
+    const torrents = this.torrents;
     return html`
       <ha-card>
         <div class="card-header">
           ${this.renderCardHeader()}
         </div>
-        ${this.renderAddTorrent()}
         <div>
           <div id="title">
               ${this.renderTitle()}
           </div>
           <div id="attributes">
-          ${ ! this.config.hide_torrent_list
+          ${ ! this.config.hide_torrent_list && this.torrents !== undefined
                ? torrents.length > 0
                  ? this.config.display_mode === 'compact'
                    ? html`${torrents.map(torrent => this.renderTorrent(torrent))}`
@@ -241,8 +285,6 @@ class TransmissionCard extends LitElement {
           <ha-icon icon="mdi:upload" class="up up-color"></ha-icon>
           <span>${gattributes.up_speed} ${gattributes.up_unit}</span>
         </div>
-        ${this.renderTurtleButton()}
-        ${this.renderStartStopButton()}
         ${this.renderTypeSelect()}
       </div>
     `;
@@ -268,23 +310,23 @@ class TransmissionCard extends LitElement {
     this._show_more_info(this.status_entity_id);
   }
   
-  renderAddTorrent() {
-    if (this.config.hide_add_torrent) {
-      return html``;
-    }
+  // renderAddTorrent() {
+  //   if (this.config.hide_add_torrent) {
+  //     return html``;
+  //   }
 
-    return html
-    `
-      <div id="addTorrent">
-        <ha-textfield
-          placeholder="Your magnet link"
-          name="addTorrent"
-          @keypress="${this._addTorrent}"
-          label="Torrent link">
-        </ha-textfield>
-      </div>
-    `
-  }
+  //   return html
+  //   `
+  //     <div id="addTorrent">
+  //       <ha-textfield
+  //         placeholder="Your magnet link"
+  //         name="addTorrent"
+  //         @keypress="${this._addTorrent}"
+  //         label="Torrent link">
+  //       </ha-textfield>
+  //     </div>
+  //   `
+  // }
 
   renderTorrent(torrent) {
     return html
@@ -370,55 +412,55 @@ class TransmissionCard extends LitElement {
       </ha-icon-button>`
   }
 
-  renderTurtleButton() {
-    if (this.config.hide_turtle) {
-      return html``;
-    }
+  // renderTurtleButton() {
+  //   if (this.config.hide_turtle) {
+  //     return html``;
+  //   }
 
-    if (typeof this.hass.states[this.turtle_mode_entity_id] == "undefined") {
-      return html``;
-    }
+  //   if (typeof this.hass.states[this.turtle_mode_entity_id] == "undefined") {
+  //     return html``;
+  //   }
 
-    const state = this.hass.states[this.turtle_mode_entity_id].state;
-    return html`
-      <div class="titleitem">
-        <ha-icon-button
-          class="turtle_${state}"
-          @click="${this._toggleTurtle}"
-          title="turtle mode"
-          id="turtle">
-          <ha-icon icon="mdi:turtle"></ha-icon>
-        </ha-icon-button>
-      </div>
-    `;
-  }
+  //   const state = this.hass.states[this.turtle_mode_entity_id].state;
+  //   return html`
+  //     <div class="titleitem">
+  //       <ha-icon-button
+  //         class="turtle_${state}"
+  //         @click="${this._toggleTurtle}"
+  //         title="turtle mode"
+  //         id="turtle">
+  //         <ha-icon icon="mdi:turtle"></ha-icon>
+  //       </ha-icon-button>
+  //     </div>
+  //   `;
+  // }
 
-  renderStartStopButton() {
-    if (this.config.hide_startstop) {
-      return html``;
-    }
+  // renderStartStopButton() {
+  //   if (this.config.hide_startstop) {
+  //     return html``;
+  //   }
 
-    if (typeof this.hass.states[this.switch_entity_id] == "undefined") {
-      return html``;
-    }
+  //   if (typeof this.hass.states[this.switch_entity_id] == "undefined") {
+  //     return html``;
+  //   }
 
-    const state = this.hass.states[this.switch_entity_id].state;
-    const isOn = state === 'on';
-    const icon = isOn ? 'mdi:stop' : 'mdi:play';
-    const title = isOn ? 'Stop All' : 'Play All';
-    return html`
-      <div class="titleitem">
-        <ha-icon-button
-          class="start_${state}"
-          @click="${this._startStop}"
-          title="${title}"
-          id="start">
-          <ha-icon icon="${icon}">
-          </ha-icon>
-        </ha-icon-button>
-      </div>
-    `;
-  }
+  //   const state = this.hass.states[this.switch_entity_id].state;
+  //   const isOn = state === 'on';
+  //   const icon = isOn ? 'mdi:stop' : 'mdi:play';
+  //   const title = isOn ? 'Stop All' : 'Play All';
+  //   return html`
+  //     <div class="titleitem">
+  //       <ha-icon-button
+  //         class="start_${state}"
+  //         @click="${this._startStop}"
+  //         title="${title}"
+  //         id="start">
+  //         <ha-icon icon="${icon}">
+  //         </ha-icon>
+  //       </ha-icon-button>
+  //     </div>
+  //   `;
+  // }
 
   renderCardHeader() {
     if (this.config.hide_header) {
@@ -489,6 +531,8 @@ class TransmissionCard extends LitElement {
       z-index: 2;
       color: var(--text-light-primary-color, var(--primary-text-color));
       line-height: 1.4em;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
     .percent {
       vertical-align: middle;
@@ -510,7 +554,7 @@ class TransmissionCard extends LitElement {
     .c-seeding {
       color: var(--light-primary-color);
     }
-    .stopped {
+    .stopped, .pausedDL, .pausedUL {
       background-color: var(--label-badge-grey);
     }
     .c-idle {
@@ -615,15 +659,15 @@ class TransmissionCard extends LitElement {
   }
 }
 
-if (!customElements.get('transmission-card')) {
-  customElements.define('transmission-card', TransmissionCard);
+if (!customElements.get('qbittorrent-card')) {
+  customElements.define('qbittorrent-card', QBittorrentCard);
 }
 
 // Puts card into the UI card picker dialog
 (window).customCards = (window).customCards || [];
 (window).customCards.push({
-  type: 'transmission-card',
-  name: 'Transmission Card',
+  type: 'qbittorrent-card',
+  name: 'QBittorrent Card',
   preview: true,
-  description: 'This Lovelace custom card displays torrents information provided by the Transmission Integration.',
+  description: 'This Lovelace custom card displays torrents information provided by the QBittorrent Integration.',
 });
